@@ -1,9 +1,6 @@
 {
   "$schema": "https://opencode.ai/schemas/opencode.json",
-  "plugins": [
-    {
-      "name": "vigilo",
-      "module": "./dist/index.js"
-    }
+  "plugin": [
+    "./dist/index.js"
   ]
 }

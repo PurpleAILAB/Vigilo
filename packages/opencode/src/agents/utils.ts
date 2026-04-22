@@ -15,6 +15,10 @@ import {
   AUDITOR_METADATA,
 } from "./auditors"
 import {
+  ZFP_AGENT_FACTORIES,
+  ZFP_AGENT_METADATA,
+} from "./zfp-factories"
+import {
   resolveModelWithFallback,
   AUDITOR_MODEL_REQUIREMENTS,
   fetchAvailableModels,
@@ -119,6 +123,35 @@ export async function createBuiltinAgents(
       name,
       description: config.description ?? `${name} security auditor`,
       metadata,
+    })
+  }
+
+  // ZFP-overhaul agents (verifier, judge, griller, patcher, re-verifier,
+  // poc-generator, invariant-tester, economic-auditor, dup-detector).
+  for (const [name, factory] of Object.entries(ZFP_AGENT_FACTORIES)) {
+    if (disabledSet.has(name.toLowerCase())) continue
+
+    const override = agentOverrides[name as BuiltinAuditorName]
+    if (override?.disable) continue
+
+    const requirement = AUDITOR_MODEL_REQUIREMENTS[name]
+    const { model } = resolveModelWithFallback({
+      userModel: override?.model,
+      fallbackChain: requirement?.fallbackChain,
+      availableModels,
+      systemDefaultModel,
+    })
+
+    let config = factory(model)
+    if (override) {
+      config = mergeAgentConfig(config, override)
+    }
+
+    result[name] = config
+    availableAuditors.push({
+      name,
+      description: config.description ?? `${name} ZFP agent`,
+      metadata: ZFP_AGENT_METADATA[name],
     })
   }
 

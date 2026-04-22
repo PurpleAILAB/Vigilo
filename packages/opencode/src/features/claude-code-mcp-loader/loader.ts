@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
-import { getClaudeConfigDir } from "../../shared"
+import { getClaudeConfigDir, readFileText } from "../../shared"
 import type {
   ClaudeCodeMcpConfig,
   LoadedMcpServer,
@@ -34,7 +34,7 @@ async function loadMcpConfigFile(
   }
 
   try {
-    const content = await Bun.file(filePath).text()
+    const content = await readFileText(filePath)
     return JSON.parse(content) as ClaudeCodeMcpConfig
   } catch (error) {
     log(`Failed to load MCP config from ${filePath}`, error)

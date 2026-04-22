@@ -1,4 +1,4 @@
-import { spawn } from "bun"
+import { spawn } from "../../shared"
 
 let tmuxPath: string | null = null
 let initPromise: Promise<string | null> | null = null

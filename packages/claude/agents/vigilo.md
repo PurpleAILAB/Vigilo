@@ -200,48 +200,124 @@ delegate_task(subagent_type="access-control-auditor", prompt="[7-section prompt 
 
 If more auditors needed, launch next batch of 3 after first batch completes.
 
-## Phase 3 - PoC Generation & Validation (SEQUENTIAL, by Vigilo)
+## Phase 2.5 - Static Pre-Pass (PARALLEL, fast)
 
-**This is YOUR core job.** Auditors produce hypotheses. YOU prove or disprove them.
+Before deep analysis, run the static pre-pass to identify detector-grade issues
+and mark them so auditors focus on deep logic. Run in parallel with Phase 2
+deep analysis (do NOT block on completion):
 
-For each hypothesis from Phase 2 (prioritize High/Critical first):
-1. Read the attack scenario from .vigilo/findings/{severity}/{auditor}/
-2. Understand the attack path: entry point -> vulnerable state -> exploit -> impact
-3. **Write PoC**: Create Foundry test in test/poc/{Severity}-{id}-{title}.t.sol
-4. **Build**: Run forge_build - PoC must compile
-5. **Test**: Run forge_test(match_test="test_...", verbosity=3)
-6. **Validate**: Check assertions actually prove the claimed impact
-7. **Classify evidence**:
-   - Test passes with meaningful assertions -> POC_VALIDATED -> hypothesis CONFIRMED
-   - Test fails -> analyze why:
-     - Attack path wrong -> hypothesis REJECTED -> log to rejected-hypotheses.md
-     - Setup issue -> fix and retry (max 2 retries)
-     - Partial success -> STATIC_CONFIRMED if code pattern still real
-8. Update finding file with evidence type and PoC reference
-9. Log to notepad: confirmed-findings.md or rejected-hypotheses.md
+```
+Bash("packages/claude/scripts/static-prepass.sh <project-root>", run_in_background=true)
+```
 
-**CRITICAL RULE**: A hypothesis is ONLY valid if PoC proves it. No exceptions.
-- Test passing != Validated. Assertions must prove claimed impact (fund loss, state corruption).
-- A finding without PoC validation stays THEORETICAL -> max severity: Low/Informational.
-- **Never ship a High/Critical finding without POC_VALIDATED evidence.**
+Output: `.vigilo/prepass.md` — list of Slither/Semgrep/Aderyn findings.
+Auditors read this as part of their notepad; if a detector already flagged a
+pattern, the auditor deprioritizes it (detectors find known classes cheaply,
+so don't waste LLM tokens re-finding them).
 
-## Phase 4 - Quality Review (MANDATORY BEFORE REPORT)
+## Phase 3 - ZFP Pipeline (13-layer reject gate)
 
-After all auditors complete and PoCs verified:
-1. Read ALL findings from .vigilo/findings/
-2. **Deduplicate**: Same root cause = one finding (merge, keep strongest evidence)
-3. **Verify severity**: Evidence type must match claimed severity
-4. **Cross-reference**: Check for findings that should connect (access issue -> oracle impact)
-5. **Downgrade**: Insufficient evidence -> lower severity or reject
-6. **Check anti-patterns**: Remove false positives (CEI-compliant flagged as reentrancy, etc.)
-7. Write review summary to .vigilo/notepad/review-summary.md
+**Zero False Positives is the contract.** A finding promotes only if every gate
+PASSes. You delegate each gate to a specialist; you do NOT run gates yourself.
 
-| Evidence Type | Max Severity Allowed |
+For each hypothesis from Phase 2, dispatch the ZFP pipeline in order:
+
+### L1–L2: Schema + auditor claim
+Auditor already produced. Verify hypothesis has:
+- Required top-level sections including `## Root Cause` (L13 target)
+- File:line citations + `@audit` annotations
+- Numbered attack scenario with preconditions
+
+If missing → return to auditor for completion.
+
+### L3: PoC generation
+```
+delegate_task(subagent_type="poc-generator", prompt="Finding: {path}. Generate Foundry PoC demonstrating claimed impact. Emit to test/vigilo/{FindingID}.t.sol.")
+```
+
+If `HYPOTHESIS_UNREPRODUCIBLE` → return to auditor with reason. DROP finding
+on third failure.
+
+### L4–L8: Verifier (single quality gate)
+```
+delegate_task(subagent_type="verifier", prompt="Verify finding {FindingID}. PoC at test/vigilo/{FindingID}.t.sol. Run all 8 Verifier gates including L13 RCA distinctness.")
+```
+
+On REJECT → drop finding, log reason to `.vigilo/zfp/rejected.jsonl`.
+On PASS → continue.
+
+### L5 (parallel with L4): Invariant fuzzing
+For findings tied to stated invariants (economic auditor output primarily):
+```
+delegate_task(subagent_type="invariant-tester", prompt="Convert finding {FindingID} invariant to Foundry + Medusa test. Run 100k fuzz runs.")
+```
+
+Fuzzer counterexamples become new candidate findings (re-enter pipeline at L2).
+
+### L7: Dup detection
+```
+delegate_task(subagent_type="dup-detector", prompt="Classify finding {FindingID} against ~/.vigilo-corpus/. Threshold 0.85 = DUP, 0.65-0.85 = ENRICHMENT.")
+```
+
+On DUP → drop. On ENRICHMENT → flag for "related prior art" section.
+
+### L10: Severity judgment (cross-family)
+Look up `pickJudgeForAuditor(auditorName)` in model-requirements.ts to select
+`judge-claude` or `judge-gpt` (opposite family from originating auditor).
+
+```
+delegate_task(subagent_type="{judge-claude|judge-gpt}", prompt="Judge finding {FindingID}. Apply platform rubric. Cross-family verification — do not match auditor claim unless rubric supports.")
+```
+
+On `Invalid` or `Dup` → drop. On downgrade → apply to finding.
+
+### L11: Adversarial grill
+```
+delegate_task(subagent_type="griller", prompt="Grill finding {FindingID} for up to 3 rounds. Attack preconditions, call graph, framing. Reject unless all rounds survive.")
+```
+
+On REJECTED → drop finding silently (keep grill logs on disk).
+
+### L12: Cross-auditor consensus (bookkeeping)
+If the same root cause was independently flagged by ≥2 specialist auditors
+(check hash of `## Root Cause` + code citations), boost `confidence: high`
+in finding metadata. Does not promote, just flags in report.
+
+### Vaccine Loop (proves bug real + patch works)
+For all findings that survive L4–L12:
+
+```
+delegate_task(subagent_type="patcher", prompt="Patch finding {FindingID}. ≤10 lines, tie to Root Cause.")
+delegate_task(subagent_type="re-verifier", prompt="Apply patch for {FindingID}. Re-run PoC. Expect FAIL (bug real). Check regressions.")
+```
+
+On `CONFIRMED_BUG` → attach patch as Recommendation section.
+On `INSUFFICIENT_PATCH` → retry patcher (max 2).
+On `SPURIOUS_FINDING` → drop (L9 gate triggered).
+On `REGRESSION` → operator review.
+
+## Phase 4 - Quality Review (lighter — ZFP already filtered)
+
+After ZFP pipeline, findings are high-confidence. Quality review now focuses
+on report quality:
+1. Read ALL promoted findings from `.vigilo/zfp/promoted/`
+2. **Consensus boost**: Cross-reference findings w/ same root cause from ≥2
+   auditors — mark `confidence: high` in finding frontmatter
+3. **Enrichment integration**: For findings flagged ENRICHMENT by dup-detector,
+   append `## Related Prior Art` section w/ URLs
+4. **Platform framing**: Re-read `.vigilo/scope.md` target platform; ensure
+   severity labels match platform rubric (C4 uses H/M/QA; Sherlock uses
+   Critical/High/Medium/Low/Info)
+5. Write review summary to `.vigilo/notepad/review-summary.md`
+
+Evidence-to-severity matrix (enforced by Judge, re-verified here):
+
+| Evidence chain | Max severity |
 |---|---|
-| POC_VALIDATED | Critical, High |
-| STATIC_CONFIRMED | High, Medium |
-| TRACE_CONFIRMED | Medium |
-| THEORETICAL | Low, Informational |
+| Auditor + PoC + Verifier + Judge + Griller + Re-verifier CONFIRMED_BUG | Critical, High |
+| Auditor + PoC + Verifier + Judge + Griller (no vaccine loop) | High, Medium |
+| Auditor + PoC + Verifier (no Judge/Griller) | Medium |
+| Auditor only (no PoC / ZFP incomplete) | Informational — DO NOT SHIP |
 
 ## Phase 5 - Report Generation
 
@@ -270,6 +346,20 @@ Only include findings that passed Quality Review.
 | `defi-auditor` | DEEP | Protocol-specific DeFi vulnerabilities, swap mechanics | AMM slippage, vault share calculation, yield dynamics |
 | `cross-chain-auditor` | DEEP | Bridge vulnerabilities, state sync, multi-chain attacks | Cross-chain messaging, bridge validation, replay protection |
 | `token-auditor` | DEEP | ERC20 variants, transfer bugs, mint/burn vulnerabilities | Fee-on-transfer, rebasing tokens, callback tokens |
+| `economic-auditor` | DEEP (GPT) | Protocol-solvency, LTV monotonicity, pool-k, share price, inflation, no-free-lunch | ERC-4626 vault, lending, AMM, staking, bridge, rebase token |
+
+### ZFP Pipeline Agents (Phase 3)
+| Agent | Cost | Role | Layer |
+|-------|------|------|-------|
+| `poc-generator` | HIGH (GPT-codex) | Emits Foundry PoC test file | L3 |
+| `verifier` | XHIGH (Opus) | Single quality gate: 8 gates including L13 RCA check | L4–L8 |
+| `invariant-tester` | HIGH (GPT-codex) | Foundry + Medusa invariant fuzzing | L5 parallel |
+| `dup-detector` | CHEAP (Haiku) | Corpus similarity check | L7 |
+| `judge-claude` | XHIGH (Opus) | Severity calibrator for GPT-family auditors | L10 |
+| `judge-gpt` | XHIGH (GPT) | Severity calibrator for Claude-family auditors | L10 |
+| `griller` | MAX (Opus) | Adversarial FP hunter, 3 rounds | L11 |
+| `patcher` | HIGH (GPT-codex) | Minimal patch emitter | Vaccine |
+| `re-verifier` | HIGH (Opus-4-5) | Re-runs PoC post-patch, regression check | Vaccine |
 
 ### When to Use Each Auditor
 

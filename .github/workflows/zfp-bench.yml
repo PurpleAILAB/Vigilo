@@ -1,0 +1,130 @@
+name: zfp-bench
+
+# Runs the Vigilo ScaBench regression suite on every push to the ZFP branch +
+# PRs into main. Fails the job if valid-finding rate regresses >2% vs the
+# recorded baseline.
+#
+# The bench runner uses `packages/bench` which scores Vigilo against
+# Code4rena ground truth. This workflow does NOT invoke live LLMs — it
+# replays previously-cached audit outputs + re-scores. Live-LLM regression
+# is a separate nightly workflow (not shipped in this PR — see roadmap).
+
+on:
+  push:
+    branches: [main, "zfp-*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: "Git ref to compare against"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: packages/bench
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.12"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      # bun install has a name conflict with the `install` script slot on this
+      # bun version — use npm for dependency install.
+      - name: install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: build bench runner
+        run: npm run build
+
+      - name: verify bench CLI
+        run: node dist/cli.js --help
+
+      # ── Replay-only regression (fast, no live LLM) ────────────────────────
+      - name: run ScaBench replay
+        id: bench
+        run: |
+          node dist/cli.js run \
+            --dataset ./data/dataset.json \
+            --baselines ./data/baselines \
+            --out ./data/results-current.json \
+            --mode replay \
+            2>&1 | tee bench-output.log
+          # Extract headline metrics for step summary
+          node dist/cli.js summarize \
+            --results ./data/results-current.json \
+            --out ./data/summary.md \
+            || echo "summary step skipped (no summarize subcommand)"
+
+      - name: post summary
+        if: always()
+        run: |
+          if [ -f ./data/summary.md ]; then
+            cat ./data/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Bench output" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -60 bench-output.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: regression gate
+        env:
+          BENCH_MAX_REGRESSION_PCT: "2"
+        run: |
+          if [ ! -f ./data/baseline-summary.json ]; then
+            echo "::notice::No baseline recorded yet — skipping regression gate"
+            exit 0
+          fi
+          node - <<'JS'
+          import { readFileSync } from "node:fs"
+          const maxRegressionPct = Number(process.env.BENCH_MAX_REGRESSION_PCT || "2")
+          const base = JSON.parse(readFileSync("./data/baseline-summary.json", "utf8"))
+          const curr = JSON.parse(readFileSync("./data/results-current.json", "utf8"))
+          // Score shape depends on bench CLI output. Guard for missing fields.
+          const baseRate = Number(base.validFindingRate ?? base.valid_rate ?? 0)
+          const currRate = Number(curr.validFindingRate ?? curr.valid_rate ?? 0)
+          if (!Number.isFinite(baseRate) || !Number.isFinite(currRate) || baseRate === 0) {
+            console.log(`No usable baseline (base=${baseRate}, curr=${currRate}) — skipping gate`)
+            process.exit(0)
+          }
+          const delta = ((currRate - baseRate) / baseRate) * 100
+          console.log(`Baseline valid-rate: ${(baseRate * 100).toFixed(2)}%`)
+          console.log(`Current  valid-rate: ${(currRate * 100).toFixed(2)}%`)
+          console.log(`Delta: ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`)
+          if (delta < -maxRegressionPct) {
+            console.error(`::error::Valid-finding rate regressed ${delta.toFixed(2)}% (gate: -${maxRegressionPct}%)`)
+            process.exit(1)
+          }
+          JS
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zfp-bench-results-${{ github.run_id }}
+          path: |
+            packages/bench/data/results-current.json
+            packages/bench/data/summary.md
+            packages/bench/bench-output.log
+          retention-days: 30

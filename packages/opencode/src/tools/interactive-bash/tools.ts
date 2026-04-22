@@ -1,6 +1,7 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin"
 import { BLOCKED_TMUX_SUBCOMMANDS, DEFAULT_TIMEOUT_MS, INTERACTIVE_BASH_DESCRIPTION } from "./constants"
 import { getCachedTmuxPath } from "./utils"
+import { spawn as spawnCompat } from "../../shared"
 
 /**
  * Quote-aware command tokenizer with escape handling
@@ -89,7 +90,7 @@ tmux capture-pane -p -t ${sessionName} -S -1000
 The Bash tool can execute these commands directly. Do NOT retry with interactive_bash.`
       }
 
-      const proc = Bun.spawn([tmuxPath, ...parts], {
+      const proc = spawnCompat([tmuxPath, ...parts], {
         stdout: "pipe",
         stderr: "pipe",
       })

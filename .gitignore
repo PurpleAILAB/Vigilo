@@ -36,3 +36,4 @@ coverage/
 reference/
 nul
 .sisyphus/
+.omc/

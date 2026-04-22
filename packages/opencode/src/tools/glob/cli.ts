@@ -1,4 +1,4 @@
-import { spawn } from "bun"
+import { spawn } from "../../shared"
 import {
   resolveGrepCli,
   type GrepBackend,

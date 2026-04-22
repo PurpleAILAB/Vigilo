@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, chmodSync, unlinkSync, readdirSync } from "node:fs"
 import { join } from "node:path"
-import { spawn } from "bun"
-import { extractZip as extractZipBase } from "../../shared"
+import { spawn, writeFile as writeFileCompat, extractZip as extractZipBase } from "../../shared"
 
 export function findFileRecursive(dir: string, filename: string): string | null {
   try {
@@ -48,7 +47,7 @@ async function downloadFile(url: string, destPath: string): Promise<void> {
   }
 
   const buffer = await response.arrayBuffer()
-  await Bun.write(destPath, buffer)
+  await writeFileCompat(destPath, buffer)
 }
 
 async function extractTarGz(archivePath: string, destDir: string): Promise<void> {

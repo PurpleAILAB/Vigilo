@@ -1,4 +1,4 @@
-import { spawn, type Subprocess } from "bun"
+import { spawn, type Subprocess } from "../../shared"
 import { readFileSync } from "fs"
 import { extname, resolve } from "path"
 import { pathToFileURL } from "node:url"

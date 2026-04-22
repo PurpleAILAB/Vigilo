@@ -1,4 +1,4 @@
-import { spawn } from "bun"
+import { spawn } from "../../shared"
 
 export async function runCommand(cmdArgs: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = spawn(cmdArgs, {

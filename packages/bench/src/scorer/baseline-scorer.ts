@@ -1,6 +1,7 @@
 import type { ScaBenchBaseline, ScoringMetadata, VigiloFinding, ScorerMatch } from "../types.js";
 import type { ScorerConfig } from "../utils.js";
 import { matchTruthFinding } from "./llm-scorer.js";
+import { initOpenCodeClient } from "../client/opencode.js";
 import { log } from "../utils.js";
 import pc from "picocolors";
 
@@ -56,6 +57,11 @@ export async function scoreBaseline(
     log(pc.dim(`Baseline findings: ${baseline.findings.length}`));
     log(pc.dim(`Truth findings: ${truthFindings.length}`));
   }
+
+  // runScorer() initializes the OpenCode client; scoreBaseline() skipped it
+  // historically, which surfaced only as "client not initialized" on first
+  // sendPrompt(). Initialize explicitly so the two paths behave the same.
+  await initOpenCodeClient(config.model);
 
   // Convert baseline findings to VigiloFinding format
   const workingSet: WorkingFinding[] = baseline.findings.map((f, idx) => ({
