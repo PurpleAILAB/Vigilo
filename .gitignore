@@ -6,6 +6,11 @@ node_modules/
 packages/opencode/dist/
 *.tsbuildinfo
 
+# Bun
+bun.lock
+packages/opencode/bun.lock
+packages/opencode/packages/
+
 # IDE
 .idea/
 .vscode/

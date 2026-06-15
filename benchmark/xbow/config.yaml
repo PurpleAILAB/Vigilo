@@ -1,0 +1,118 @@
+# XBOW Benchmark Configuration for Vigilo
+# Decepticon-level optimization settings
+
+# Agent configuration
+agent:
+  name: "vigilo"
+  model: "anthropic/claude-3-5-sonnet"
+  temperature: 0.0
+  max_tokens: 64000
+  top_p: 1.0
+  top_k: 1
+
+# Benchmark settings
+benchmark:
+  levels: [1, 2, 3]        # Run all levels
+  limit: null               # No limit (all 104 challenges)
+  timeout: 300              # 5 minutes per challenge
+  retries: 3                # Retry failed challenges
+  parallel: false           # Run challenges sequentially (set to true for faster runs)
+  max_parallel: 4          # Max parallel challenges if parallel=true
+
+# Output settings
+output:
+  directory: "results"
+  format: ["json", "markdown"]
+  include_traces: true     # Include LangSmith traces
+  save_findings: true      # Save detailed findings per challenge
+  save_logs: true          # Save console logs
+
+# Comparison settings
+compare:
+  baseline: "decepticon"   # Compare against Decepticon results
+  output_diff: true         # Show differences in report
+  target_pass_rate: 0.9808 # Decepticon baseline: 98.08%
+
+# Vigilo-specific configuration
+vigilo:
+  # Evidence hierarchy settings
+  evidence_hierarchy:
+    enabled: true
+    minimum_level: "STATIC_CONFIRMED"  # Minimum evidence level to accept
+    
+  # Confidence scoring
+  confidence:
+    enabled: true
+    decay_factors:
+      time: 0.95            # Decay by time
+      context_length: 0.98 # Decay by context length
+      model_tier: 1.0       # No decay for model tier
+    
+  # Model fallback chain (11 providers)
+  fallback:
+    enabled: true
+    chain: [
+      "anthropic/claude-3-5-sonnet",
+      "anthropic/claude-3-haiku",
+      "openai/gpt-4o",
+      "openai/gpt-4-turbo",
+      "google/gemini-1.5-pro",
+      "google/gemini-1.5-flash",
+      "mistral/mistral-large",
+      "mistral/mistral-medium",
+      "xai/grok-2",
+      "xai/grok-1",
+      "local/llama-3.2-11b"
+    ]
+    
+  # Knowledge graph settings
+  knowledge_graph:
+    enabled: true
+    neo4j_uri: "bolt://localhost:7687"
+    neo4j_user: "neo4j"
+    neo4j_password: "password"
+    build_attack_chains: true
+    
+  # False positive neutralization (13 patterns)
+  false_positive_filter:
+    enabled: true
+    patterns:
+      - "Library Code (OpenZeppelin)"
+      - "Library Code (Solady)"
+      - "Library Code (Solmate)"
+      - "Intentional Design Patterns (admin)"
+      - "Intentional Design Patterns (pause)"
+      - "Intentional Design Patterns (upgradeable)"
+      - "Testing Artifacts (Hardhat)"
+      - "Testing Artifacts (Foundry)"
+      - "Testing Artifacts (cheat codes)"
+      - "Compiler Warnings as Vulnerabilities"
+      - "Gas Optimization False Positives"
+      - "Style/Quality as Security"
+      - "SafeMath Deprecation Warnings"
+    
+  # Sandbox settings (two-network architecture)
+  sandbox:
+    enabled: true
+    management_net: "decepticon-net"
+    sandbox_net: "sandbox-net"
+    use_tmux: true
+    container_prefix: "vigilo-sandbox"
+
+# Token usage tracking
+tokens:
+  track: true
+  warn_threshold: 50000      # Warn if >50K tokens per challenge
+  fail_threshold: 100000    # Fail if >100K tokens per challenge
+
+# Performance tracking
+performance:
+  track_time: true
+  track_tokens: true
+  track_quality: true
+  
+# Quality metrics
+quality:
+  false_positive_weight: 10.0   # FP penalty multiplier
+  false_negative_weight: 5.0    # FN penalty multiplier
+  verification_required: true     # Require verification for all findings

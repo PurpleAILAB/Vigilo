@@ -1,0 +1,94 @@
+# XBOW Benchmark Requirements for Vigilo
+# Decepticon-level benchmarking dependencies
+
+# Core dependencies
+pyyaml>=6.0.1
+requests>=2.31.0
+numpy>=1.26.0
+pandas>=2.2.0
+
+# Benchmarking and testing
+pytest>=7.4.0
+pytest-benchmark>=4.0.0
+pytest-cov>=4.1.0
+hypothesis>=6.80.0
+
+# Smart contract interaction
+eth-brownie>=1.20.0
+web3>=6.15.0
+py-solc-x>=2.0.0
+eth-account>=0.5.7
+eth-utils>=2.2.0
+
+# Data analysis and visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.18.0
+
+# File handling
+python-dotenv>=1.0.0
+pathlib>=1.0.1
+
+# HTTP and API clients
+httpx>=0.26.0
+retry>=0.9.2
+backoff>=2.2.1
+
+# CLI and formatting
+rich>=13.7.0
+click>=8.1.0
+colorama>=0.4.6
+
+# Date/time handling
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# JSON and serialization
+orjson>=3.9.0
+msgpack>=1.0.7
+
+# Logging
+structlog>=23.2.0
+
+# Type hints (Python 3.10+)
+typing-extensions>=4.10.0
+
+# Data validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Async support
+anyio>=4.0.0
+async-timeout>=4.0.2
+
+# Cryptography (for signing)
+cryptography>=42.0.0
+
+# Neo4j driver for knowledge graph
+neo4j>=5.14.0
+
+# LangSmith for tracing (optional)
+langsmith>=0.1.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Git operations (for cloning XBOW repo)
+GitPython>=3.1.40
+
+# Markdown generation
+markdown>=3.5.0
+beautifulsoup4>=4.12.0
+
+# CSV support for reports
+pyarrow>=15.0.0
+
+# Statistical analysis
+scipy>=1.12.0
+scikit-learn>=1.4.0
+
+# YAML parsing
+ruamel.yaml>=0.18.0
+
+# Environment management
+dotenv>=0.21.0

@@ -1,0 +1,423 @@
+version: '3.8'
+
+# =============================================================================
+# Decepticon-Level Vigilo Stack - Two-Network Architecture
+# =============================================================================
+#
+# NETWORK DESIGN:
+#   decepticon-net (management plane) - Orchestrator, databases, services
+#   sandbox-net (sandbox plane) - Auditor containers, C2 servers, targets
+#
+# SECURITY:
+#   - NO inbound access from sandbox-net to decepticon-net
+#   - Neo4j is dual-homed (accessible from both networks)
+#   - All auditor containers run on sandbox-net
+#   - Management services NEVER access sandbox-net directly
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# NETWORKS
+# -----------------------------------------------------------------------------
+
+networks:
+  decepticon-net:
+    driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
+
+  sandbox-net:
+    driver: bridge
+    internal: true  # Isolate sandbox from external network
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+          gateway: 172.21.0.1
+
+# -----------------------------------------------------------------------------
+# VOLUMES
+# -----------------------------------------------------------------------------
+
+volumes:
+  # Management plane volumes
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
+  skillogy_data:
+  uploads:
+  
+  # Sandbox plane volumes (ephemeral - rebuilt per audit)
+  sandbox_shared:
+  sandbox_targets:
+
+# -----------------------------------------------------------------------------
+# MANAGEMENT PLANE SERVICES (decepticon-net)
+# Always-on services that form the core management infrastructure
+# -----------------------------------------------------------------------------
+
+services:
+  # ===========================================================================
+  # LiteLLM - Model Proxy & Load Balancing
+  # ===========================================================================
+  litellm:
+    image: ghcr.io/berriai/litellm:latest
+    container_name: litellm
+    networks:
+      - decepticon-net
+    ports:
+      - "4000:4000"  # HTTP API
+    environment:
+      - LITELLM_CONFIG_FILE=/config/litellm-config.yaml
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-vigilo-master-key}
+    volumes:
+      - ./config/litellm:/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ===========================================================================
+  # PostgreSQL - Audit State & Metadata
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    networks:
+      - decepticon-net
+    environment:
+      - POSTGRES_USER=vigilo
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vigilo-password}
+      - POSTGRES_DB=vigilo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vigilo -d vigilo"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ===========================================================================
+  # Neo4j - Knowledge Graph (Dual-Homed)
+  # ===========================================================================
+  # NOTE: In production, use Neo4j causal clustering for true dual-homing
+  # For development, we use a single instance accessible from both networks
+  # -----------------------------------------------------------------------------
+  neo4j:
+    image: neo4j:5-enterprise
+    container_name: neo4j
+    networks:
+      - decepticon-net
+      - sandbox-net
+    ports:
+      - "7474:7474"  # Browser UI
+      - "7473:7473"  # HTTPS
+      - "7687:7687"  # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-neo4j-password}
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_connector_bolt_tls__level=DISABLED
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-neo4j-password}", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 3G
+
+  # ===========================================================================
+  # Skillogy - Skill Management
+  # ===========================================================================
+  skillogy:
+    image: ghcr.io/purpleailab/skillogy:latest
+    container_name: skillogy
+    networks:
+      - decepticon-net
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://vigilo:${POSTGRES_PASSWORD:-vigilo-password}@postgres:5432/vigilo
+      - SKILLOGY_API_KEY=${SKILLOGY_API_KEY:-skillogy-secret-key}
+    volumes:
+      - skillogy_data:/data
+      - ./skills:/app/skills:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ===========================================================================
+  # LangGraph - Workflow Orchestration
+  # ===========================================================================
+  langgraph:
+    image: ghcr.io/langchain-ai/langgraph:latest
+    container_name: langgraph
+    networks:
+      - decepticon-net
+    ports:
+      - "8000:8000"
+    environment:
+      - LANGGRAPH_API_KEY=${LANGGRAPH_API_KEY:-langgraph-secret-key}
+      - LITELLM_API_URL=http://litellm:4000
+    depends_on:
+      litellm:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+# -----------------------------------------------------------------------------
+# SANDBOX PLANE SERVICES (sandbox-net)
+# Dynamic services spawned on-demand by the Sandbox Manager
+# -----------------------------------------------------------------------------
+
+  # ===========================================================================
+  # Sandbox Manager - Container Lifecycle Controller
+  # ===========================================================================
+  sandbox-manager:
+    image: ghcr.io/purpleailab/sandbox-manager:latest
+    container_name: sandbox-manager
+    networks:
+      - decepticon-net
+      - sandbox-net
+    environment:
+      - SANDBOX_NETWORK=sandbox-net
+      - DOCKER_SOCKET=/var/run/docker.sock
+      - TARGET_VOLUME=sandbox_targets
+      - SHARED_VOLUME=sandbox_shared
+    volumes:
+      # Read-only access to Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sandbox_targets:/target:ro
+      - sandbox_shared:/shared:rw
+    privileged: true  # Required for container lifecycle management
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+# -----------------------------------------------------------------------------
+# ON-DEMAND SANDBOX SERVICES
+# These are spawned by the Sandbox Manager when auditors request them
+# Use `docker compose up -d --scale auditor=3` to spawn multiple auditors
+# -----------------------------------------------------------------------------
+
+  # Auditor Container Template (spawned dynamically)
+  auditor-template:
+    image: ghcr.io/purpleailab/auditor-image:latest
+    container_name: "auditor-${AUDITOR_NAME:-template}"
+    networks:
+      - sandbox-net
+    volumes:
+      - sandbox_targets:/target:ro
+      - sandbox_shared:/shared:rw
+    environment:
+      - AUDITOR_NAME=${AUDITOR_NAME:-unknown}
+      - SESSION_ID=${SESSION_ID:-unknown}
+      - TARGET_CONTRACT=${TARGET_CONTRACT:-unknown}
+      - NEO4J_BOLT_URL=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j-password}
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+          pids: 50
+    # Resource limits enforced by cgroups
+    ulimits:
+      nproc: 50
+      nofile:
+        soft: 1024
+        hard: 2048
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 60999
+
+# -----------------------------------------------------------------------------
+# SPECIALIST WORKLOADS (spawned on-demand)
+# These are heavy services that come up only when needed
+# -----------------------------------------------------------------------------
+
+  # Sliver C2 Server (spawned when ops_start("sliver") called)
+  sliver:
+    image: ghcr.io/slivershop/sliver:latest
+    container_name: sliver-c2
+    networks:
+      - sandbox-net
+    ports:
+      - "31337:31337"  # C2 listener
+    volumes:
+      - sliver_data:/root/.sliver
+    environment:
+      - SLIVER_LICENSE_KEY=${SLIVER_LICENSE_KEY}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # BloodHound CE (spawned when ops_start("bloodhound") called)
+  bloodhound:
+    image: ghcr.io/specterops/bloodhound:latest
+    container_name: bloodhound
+    networks:
+      - sandbox-net
+    ports:
+      - "8080:8080"  # Web UI
+    volumes:
+      - bloodhound_data:/data
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASS=${NEO4J_PASSWORD:-neo4j-password}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  # Ghidra MCP (spawned when ops_start("ghidra") called)
+  ghidra:
+    image: ghcr.io/purpleailab/ghidra-mcp:latest
+    container_name: ghidra-mcp
+    networks:
+      - sandbox-net
+    ports:
+      - "1337:1337"  # MCP server
+    volumes:
+      - ghidra_projects:/opt/ghidra/projects
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+# -----------------------------------------------------------------------------
+# WEB DASHBOARD (spawned on-demand via /web command)
+# -----------------------------------------------------------------------------
+
+  web-dashboard:
+    image: ghcr.io/purpleailab/decepticon-dashboard:latest
+    container_name: web-dashboard
+    networks:
+      - decepticon-net
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEO4J_BOLT_URL=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j-password}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+# -----------------------------------------------------------------------------
+# REVERSE PROXY (Optional - for production deployments)
+# -----------------------------------------------------------------------------
+
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: nginx
+  #   networks:
+  #     - decepticon-net
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./config/nginx/ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - litellm
+  #     - langgraph
+  #     - skillogy
+  #   restart: unless-stopped
+
+# =============================================================================
+# CONFIGURATION TEMPLATES
+# =============================================================================
+
+# Example litellm-config.yaml (create in ./config/litellm/)
+# model_list:
+#   - model_name: claude-3-5-sonnet
+#     litellm_params:
+#       model: anthropic/claude-3-5-sonnet-20241022
+#       api_key: ${ANTHROPIC_API_KEY}
+#   - model_name: gpt-4o
+#     litellm_params:
+#       model: openai/gpt-4o
+#       api_key: ${OPENAI_API_KEY}
+#   - model_name: mistral-large
+#     litellm_params:
+#       model: mistralai/mistral-large
+#       api_key: ${MISTRAL_API_KEY}
+#
+# routing_strategy: "least-busy"
+#
+# Example .env file:
+# LITELLM_MASTER_KEY=your-master-key
+# POSTGRES_PASSWORD=your-postgres-password
+# NEO4J_PASSWORD=your-neo4j-password
+# ANTHROPIC_API_KEY=your-anthropic-key
+# OPENAI_API_KEY=your-openai-key
+# MISTRAL_API_KEY=your-mistral-key

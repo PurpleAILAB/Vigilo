@@ -61,12 +61,12 @@
     "zod": "^3.24.4"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "^1.1.19",
-    "@opencode-ai/sdk": "^1.1.19"
+    "@opencode-ai/plugin": "^1.17.7",
+    "@opencode-ai/sdk": "^1.17.7"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.1.19",
-    "@opencode-ai/sdk": "^1.1.19",
+    "@opencode-ai/plugin": "^1.17.7",
+    "@opencode-ai/sdk": "^1.17.7",
     "@types/adm-zip": "^0.5.7",
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",

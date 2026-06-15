@@ -1,0 +1,354 @@
+# =============================================================================
+# .dockerignore - Decepticon-Level Docker Ignore Patterns
+# =============================================================================
+#
+# This file prevents unnecessary files from being copied into Docker images,
+# reducing build time, image size, and attack surface.
+#
+# Pattern Format:
+#   - /path/to/file     - Ignore specific file
+#   - dir/              - Ignore directory
+#   - *.ext             - Ignore all files with extension
+#   - pattern           - Ignore files matching pattern
+#
+# Exception: Prefix with ! to include
+# =============================================================================
+
+# =============================================================================
+# GIT
+# =============================================================================
+.git
+.git/
+.gitignore
+.gitmodules
+.gitattributes
+**/.git
+**/.git/
+**/.gitignore
+**/.gitmodules
+
+# =============================================================================
+# NODE.js
+# =============================================================================
+node_modules
+node_modules/
+**/node_modules
+**/node_modules/
+
+# Yarn
+.yarn
+.yarn/
+.yarnrc
+yarn-error.log
+yarn.lock
+.pnp
+.pnp.js
+
+# npm
+package-lock.json
+npm-debug.log*
+
+# pnpm
+pnpm-lock.yaml
+
+# =============================================================================
+# BUILD ARTIFACTS
+# =============================================================================
+
+# TypeScript/JavaScript
+build
+build/
+dist
+dist/
+*.js.map
+*.js.map
+**/*.js.map
+**/*.d.ts
+
+# Python
+__pycache__
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Rust
+**/target
+**/target/
+Cargo.lock
+
+# Go
+go.mod
+go.sum
+
+# Java
+*.class
+*.jar
+
+# =============================================================================
+# IDE & EDITOR
+# =============================================================================
+.idea
+.idea/
+.vscode
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings
+.settings/
+.c9/
+*.sublime-workspace
+*.sublime-project
+
+# OS X
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+
+# Linux
+*~
+ lost+found
+
+# =============================================================================
+# LOGS & TEMP FILES
+# =============================================================================
+*.log
+*.log/
+logs
+logs/
+**/logs
+**/logs/
+tmp
+tmp/
+**/tmp
+**/tmp/
+*.tmp
+*.temp
+*.swp
+.core
+
+# =============================================================================
+# ENVIRONMENT & SECRETS
+# =============================================================================
+.env
+.env.*
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+*.env
+
+# =============================================================================
+# DOCUMENTATION (keep docs but ignore build artifacts)
+# =============================================================================
+docs/
+*.md
+**/*.md
+!.dockerignore
+!Makefile
+!docker-compose*.yml
+
+# =============================================================================
+# VIGILO SPECIFIC
+# =============================================================================
+
+# Build artifacts (binaries)
+packages/opencode/packages/*/bin/
+**/packages/*/bin/
+*.map
+
+# Audit output (generated during runtime)
+.vigilo
+.vigilo/
+**/.vigilo
+**/.vigilo/
+
+# Test PoCs (generated during audit)
+test/poc
+poc/
+**/poc
+**/poc/
+
+# Foundry
+foundry.toml
+forge-std/
+lib/
+out/
+broadcast/
+cache/
+
+# Hardhat
+hardhat.config.js
+hardhat.config.ts
+artifacts/
+cache/
+
+# Benchmark results
+.benchmark
+.benchmark/
+benchmark/
+**/benchmark
+**/benchmark/
+
+# Coverage
+coverage
+coverage/
+**/coverage
+**/coverage/
+.nyc_output
+.nyc_output/
+
+# Reports
+reports/
+**/reports
+**/reports/
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+Dockerfile
+Dockerfile.*
+.dockerignore
+.docker/
+
+# =============================================================================
+# SECRETS & KEYS
+# =============================================================================
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.p7b
+*.p7c
+
+# =============================================================================
+# TEST COVERAGE & ANALYSIS
+# ============================================================================= 
+.nyc_output
+.coverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+
+# =============================================================================
+# MACHINE LEARNING & DATA
+# =============================================================================
+*.csv
+*.json
+*.jsonl
+*.parquet
+*.pickle
+*.pkl
+*.h5
+*.hdf5
+*.npz
+*.npy
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.dat
+
+# Exception: Keep skill files
+!skills/
+!**/skills/
+!*.skill.json
+
+# =============================================================================
+# CACHES
+# =============================================================================
+.cache
+.cache/
+**/.cache
+**/.cache/
+.pip-cache/
+.mypy_cache/
+.__pycache__/
+
+# =============================================================================
+# INSTALLERS & PACKAGES
+# =============================================================================
+*.whl
+*.tar.gz
+*.tar.bz2
+*.zip
+*.rar
+*.7z
+
+# Exception: Keep required packages
+!package.json
+!packages/opencode/package.json
+!yarn.lock
+!package-lock.json
+!pnpm-lock.yaml
+
+# =============================================================================
+# SYSTEM FILES
+# =============================================================================
+proc
+dev/
+mnt/
+proc/
+sys/
+var/
+
+# =============================================================================
+# VIRTUAL ENVIRONMENTS
+# =============================================================================
+venv
+venv/
+ENV
+ENV/
+.venv
+.venv/
+
+# =============================================================================
+# COMPRESSED FILES
+# =============================================================================
+*.gz
+*.bz2
+*.xz
+*.lzma
+*.lz4
+*.zst

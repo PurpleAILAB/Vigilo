@@ -36,6 +36,8 @@ import {
   startBackgroundCheck,
   lspManager,
 } from "./tools"
+import * as providers from "./providers"
+import * as confidenceScoring from "./utils/confidence-scoring"
 import { BackgroundManager } from "./features/background-agent"
 import { SkillMcpManager } from "./features/skill-mcp-manager"
 import { initTaskToastManager } from "./features/task-toast-manager"
@@ -264,3 +266,5 @@ const VigiloPlugin: Plugin = async (ctx) => {
 }
 
 export default VigiloPlugin
+
+export { providers, confidenceScoring }
